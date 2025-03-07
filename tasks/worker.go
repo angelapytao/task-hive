@@ -87,6 +87,7 @@ func (w *Worker) executeTask(ctx context.Context, task model.Task) (string, erro
 	case <-ctx.Done():
 		return "", fmt.Errorf("任务执行超时")
 	case <-time.After(time.Duration(rand.Intn(3)+1) * time.Second):
+		go task.ExecuteFunc(&task)
 		return fmt.Sprintf("任务 %s 执行结果", task.ID), nil
 	}
 }

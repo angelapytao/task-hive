@@ -1,27 +1,31 @@
 package tasks
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"github.com/tealeg/xlsx"
-	"go.etcd.io/etcd/client/v3"
 	"path/filepath"
 	"runtime"
 	"task-hive/model"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/tealeg/xlsx"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 const (
 	SpiderExcelFile = "../spider.xlsx"
 )
 
-func StartWechatTask(client *clientv3.Client) {
+func StartSpiderTask(client *clientv3.Client) {
+	logrus.Info("StartSpiderTask start...")
 	// 获取当前文件所在目录
 	_, filename, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filepath.Dir(filename))
 	excelPath := filepath.Join(projectRoot, "spider.xlsx")
+
+	// 打印路径信息
+	logrus.Infof("Excel文件路径: %s", excelPath)
 
 	// 读取excel任务数据
 	xlFile, err := xlsx.OpenFile(excelPath)
@@ -51,10 +55,11 @@ func StartWechatTask(client *clientv3.Client) {
 
 		// 创建分布式任务
 		task := model.Task{
-			ID:         fmt.Sprintf("wechat-task-%d-%d", time.Now().UnixNano(), rowIndex),
-			Payload:    wechatTask.ToTaskPayload(),
-			Priority:   5,
-			CreateTime: time.Now(),
+			ID:          fmt.Sprintf("wechat-task-%d-%d", time.Now().UnixNano(), rowIndex),
+			Payload:     wechatTask.ToTaskPayload(),
+			Priority:    5,
+			CreateTime:  time.Now(),
+			ExecuteFunc: ProcessSpiderTask,
 		}
 
 		// 提交任务到分布式系统
@@ -68,7 +73,8 @@ func StartWechatTask(client *clientv3.Client) {
 }
 
 // 实现任务处理逻辑
-func ProcessWechatTask(ctx context.Context, task model.Task) (string, error) {
+// 实现任务处理逻辑
+func ProcessSpiderTask(task *model.Task) (string, error) {
 	var wechatTask model.WechatTask
 	if err := json.Unmarshal([]byte(task.Payload), &wechatTask); err != nil {
 		return "", fmt.Errorf("invalid task payload: %v", err)

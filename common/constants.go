@@ -10,6 +10,11 @@ const (
 	FailedKey       = "/tasks/failed/"
 	WorkersKey      = "/workers/"
 
+	LeaderKey = "/task-hive/leader/"
+
+	RoleDispatcher = "dispatcher"
+	RoleMonitor    = "monitor"
+
 	MaxRetries  = 3
 	TaskTimeout = 5 * time.Minute
 )

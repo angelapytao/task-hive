@@ -55,11 +55,12 @@ func StartSpiderTask(client *clientv3.Client) {
 
 		// 创建分布式任务
 		task := model.Task{
-			ID:          fmt.Sprintf("wechat-task-%d-%d", time.Now().UnixNano(), rowIndex),
-			Payload:     wechatTask.ToTaskPayload(),
-			Priority:    5,
-			CreateTime:  time.Now(),
-			ExecuteFunc: ProcessSpiderTask,
+			ID:         fmt.Sprintf("wechat-task-%d-%d", time.Now().UnixNano(), rowIndex),
+			Payload:    wechatTask.ToTaskPayload(),
+			Priority:   5,
+			CreateTime: time.Now(),
+			Type:       "spider",
+			//ExecuteFunc: ProcessSpiderTask,
 		}
 
 		// 提交任务到分布式系统
@@ -72,8 +73,7 @@ func StartSpiderTask(client *clientv3.Client) {
 	}
 }
 
-// 实现任务处理逻辑
-// 实现任务处理逻辑
+// ProcessSpiderTask 实现任务处理逻辑
 func ProcessSpiderTask(task *model.Task) (string, error) {
 	var wechatTask model.WechatTask
 	if err := json.Unmarshal([]byte(task.Payload), &wechatTask); err != nil {

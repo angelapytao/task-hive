@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+// 全局任务处理器映射
+var taskProcessors = map[string]func(task *model.Task) (string, error){
+	"spider": ProcessSpiderTask,
+}
+
 // Worker 表示工作节点
 type Worker struct {
 	ID            string
@@ -21,7 +26,7 @@ type Worker struct {
 	Capacity      int // 最大并发任务数
 }
 
-// Worker处理任务
+// ProcessTasks Worker处理任务
 func (w *Worker) ProcessTasks(client *clientv3.Client) {
 	watchPrefix := common.ProcessingKey + w.ID + "/"
 	log.Printf("model.Worker %s 开始监听任务: %s", w.ID, watchPrefix)
@@ -87,7 +92,16 @@ func (w *Worker) executeTask(ctx context.Context, task model.Task) (string, erro
 	case <-ctx.Done():
 		return "", fmt.Errorf("任务执行超时")
 	case <-time.After(time.Duration(rand.Intn(3)+1) * time.Second):
-		go task.ExecuteFunc(&task)
-		return fmt.Sprintf("任务 %s 执行结果", task.ID), nil
+		processor, exists := taskProcessors[task.Type]
+		if !exists {
+			log.Printf("未找到任务类型 %s 的处理器", task.Type)
+			// 更新任务状态为失败
+			task.Status = "failed"
+			task.Error = fmt.Sprintf("未知的任务类型: %s", task.Type)
+			// 更新任务状态代码...
+			return "", fmt.Errorf(task.Error)
+		}
+		result, err := processor(&task)
+		return fmt.Sprintf("任务 %s 执行结果: %v", task.ID, result), err
 	}
 }

@@ -5,6 +5,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"log"
+	"task-hive/common"
 	"time"
 )
 
@@ -26,7 +27,7 @@ func NewLeaderElection(client *clientv3.Client, role, id string, leaderFunc func
 		return nil, err
 	}
 
-	election := concurrency.NewElection(session, "/task-hive/leader/"+role)
+	election := concurrency.NewElection(session, common.LeaderKey+role)
 
 	return &LeaderElection{
 		client:     client,
@@ -55,7 +56,8 @@ func (le *LeaderElection) Start(ctx context.Context) {
 
 			// 执行领导者功能
 			log.Printf("执行领导者功能")
-			go le.leaderFunc()
+			//go le.leaderFunc()
+			le.leaderFunc()
 
 			// 监听领导权变化
 			observeChan := le.election.Observe(ctx)

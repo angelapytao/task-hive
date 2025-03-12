@@ -18,3 +18,13 @@ const (
 	MaxRetries  = 3
 	TaskTimeout = 5 * time.Minute
 )
+
+type TaskStatus int
+
+const (
+	// PENDING TaskStatus 任务状态
+	PENDING TaskStatus = iota
+	PROCESSING
+	COMPLETED
+	FAILED
+)

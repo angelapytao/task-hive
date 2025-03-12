@@ -57,11 +57,11 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 
 					if err != nil {
 						task.Error = err.Error()
-						task.Status = "failed"
+						task.Status = common.FAILED
 						if task.RetryCount < common.MaxRetries {
 							// 重试逻辑
 							task.RetryCount++
-							task.Status = "pending"
+							task.Status = common.PENDING
 							SubmitTask(client, task)
 						} else {
 							// 超过重试次数，移至失败队列
@@ -70,7 +70,7 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 						}
 					} else {
 						// 任务成功完成
-						task.Status = "completed"
+						task.Status = common.COMPLETED
 						task.Result = result
 						taskData, _ := json.Marshal(task)
 						client.Put(ctx, common.CompletedKey+task.ID, string(taskData))
@@ -96,7 +96,7 @@ func (w *Worker) executeTask(ctx context.Context, task model.Task) (string, erro
 		if !exists {
 			log.Printf("未找到任务类型 %s 的处理器", task.Type)
 			// 更新任务状态为失败
-			task.Status = "failed"
+			task.Status = common.FAILED
 			task.Error = fmt.Sprintf("未知的任务类型: %s", task.Type)
 			// 更新任务状态代码...
 			return "", fmt.Errorf(task.Error)

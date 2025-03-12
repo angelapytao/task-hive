@@ -83,6 +83,10 @@ func (le *LeaderElection) IsLeader() bool {
 // Close 关闭领导者选举
 func (le *LeaderElection) Close() {
 	if le.session != nil {
-		le.session.Close()
+		err := le.session.Close()
+		if err != nil {
+			log.Printf("leader election err: %v", err)
+			return
+		}
 	}
 }

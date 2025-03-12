@@ -1,0 +1,38 @@
+taskId	taskName	domain	type	domLimit	drive	rootNodes	companyId	root
+104390	【每日common daily】福建报业新媒体发展有限公司 + www.fjsen.com	www.fjsen.com	web	100000	selenium	https://www.fjsen.com	34562	fjsen.com
+104402	【每日common daily】福建报业新媒体发展有限公司 + www.hxnews.com	www.hxnews.com	web	100000	selenium	http://www.hxnews.com/	34562	hxnews.com
+104398	【每日common daily】福建报业新媒体发展有限公司 + www.mnw.cn	www.mnw.cn	web	100000	selenium	https://www.mnw.cn	34562	mnw.cn
+104394	【每日common daily】福建报业新媒体发展有限公司 + www.taihainet.com	www.taihainet.com	web	100000	selenium	https://www.taihainet.com	34562	taiheinet.com
+115614	【每日common daily】深圳英鹏信息技术股份有限公司 + www.igao7.com	www.igao7.com	web	100000	selenium	https://www.igao7.com	36644	igao7.com
+115615	【每日common daily】深圳英鹏信息技术股份有限公司 + www.leiphone.com	www.leiphone.com	web	100000	selenium	https://www.leiphone.com	36644	leiphone.com
+115616	【每日common daily】易简传媒科技集团股份有限公司 + www.familydoctor.com.cn	www.familydoctor.com.cn	web	100000	selenium	https://www.familydoctor.com.cn/	59322	familydoctor.com.cn
+115617	【每日common daily】深圳市前海新视联网络科技有限公司 + www.cnu.cc	www.cnu.cc	web	100000	selenium	http://www.cnu.cc/	143438	cnu.cc
+115618	【每日common daily】深圳市前海新视联网络科技有限公司 + www.xingqudao.cn	www.xingqudao.cn	web	100000	selenium	https://www.xingqudao.cn	142039	xingqudao.cn
+135026	【每日common daily】河北广播电视台 + www.hebtv.com	www.hebtv.com	web	1000000	selenium	https://www.hebtv.com	37768	hebtv.com
+135027	【每日common daily】百度时代网络技术（北京）有限公司 + baike.baidu.com	baike.baidu.com	web	1000000	selenium	https://baike.baidu.com	28842	baidu.com
+143540	【每日common daily】新华网股份有限公司 + www.news.cn	www.news.cn	web	1000000	selenium	https://www.news.cn	30584	news.cn
+163219	【每日common daily】新华网股份有限公司 + www.xinhuanet.com	www.xinhuanet.com	web	1000000	selenium	https://www.xinhuanet.com	30584	xinhuanet.com
+1425	【每日common daily】中国工会网络中心有限责任公司 + www.workercn.cn	www.workercn.cn	web	1000000	selenium	https://www.workercn.cn	53744	workercn.cn
+160524	【每日common daily】文汇报社 + dzb.whb.cn	dzb.whb.cn	web	100000	selenium	https://dzb.whb.cn	30479	whb.cn
+164799	【每日common daily】文汇报社 + www.whb.cn	www.whb.cn	web	100000	selenium	https://www.whb.cn	30479	whb.cn
+90001	【每日common daily】+ qie_腾讯新闻刺点	qie_腾讯新闻刺点	news-tencent	1	request	"{""author_name"": ""腾讯新闻刺点"", ""suid"": ""8QMY2H1b5IcVuTc=""}"	30877	news.qq.com
+90002	【每日common daily】+ qie_腾讯娱乐白皮书	qie_腾讯娱乐白皮书	news-tencent	1	request	"{""author_name"": ""腾讯娱乐白皮书"", ""suid"": ""8QMd239a5I0ZvDbe""}"	30877	news.qq.com
+90003	【每日common daily】+ qie_腾讯新闻仅三天可见	qie_腾讯新闻仅三天可见	news-tencent	1	request	"{""author_name"": ""腾讯新闻仅三天可见"", ""suid"": ""8QMd3XpV6YcZvzvZ""}"	30877	news.qq.com
+90004	【每日common daily】+ qie_萤火虫计划	qie_萤火虫计划	news-tencent	1	request	"{""author_name"": ""萤火虫计划"", ""suid"": ""8QMc3Hxd64Ievj/a""}"	30877	news.qq.com
+90005	【每日common daily】+ qie_在线影展	qie_在线影展	news-tencent	1	request	"{""author_name"": ""在线影展"", ""suid"": ""8QMf1nxf6oYZuTrY""}"	30877	news.qq.com
+90006	【每日common daily】+ qie_腾讯新闻谷雨数据	qie_腾讯新闻谷雨数据	news-tencent	1	request	"{""author_name"": ""腾讯新闻谷雨数据"", ""suid"": ""8QMd23xf74wVujrZ""}"	30877	news.qq.com
+90007	【每日common daily】+ qie_腾讯证券	qie_腾讯证券	news-tencent	1	request	"{""author_name"": ""腾讯证券"", ""suid"": ""8QMd3X5d6o0fuDvZ""}"	30877	news.qq.com
+90008	【每日common daily】+ qie_腾讯汽车	qie_腾讯汽车	news-tencent	1	request	"{""author_name"": ""腾讯汽车"", ""suid"": ""8QMY3Hxd7YMZuDs=""}"	30877	news.qq.com
+90009	【每日common daily】+ qie_腾讯科技	qie_腾讯科技	news-tencent	1	request	"{""author_name"": ""腾讯科技"", ""suid"": ""8QMZ3XxU64wZuTw=""}"	30877	news.qq.com
+90010	【每日common daily】+ qie_腾讯新闻财看见	qie_腾讯新闻财看见	news-tencent	1	request	"{""author_name"": ""腾讯新闻财看见"", ""suid"": ""8QMf3Hxd5YYYvDff""}"	30877	news.qq.com
+90011	【每日common daily】+ qie_腾讯新闻谷雨实验室	qie_腾讯新闻谷雨实验室	news-tencent	1	request	"{""author_name"": ""腾讯新闻谷雨实验室"", ""suid"": ""8QMd3Hta64Advz3Z""}"	30877	news.qq.com
+90012	【每日common daily】+ qie_腾讯教育	qie_腾讯教育	news-tencent	1	request	"{""author_name"": ""腾讯教育"", ""suid"": ""8QMY33xf74Yeuz0=""}"	30877	news.qq.com
+90013	【每日common daily】+ qie_局面	qie_局面	news-tencent	1	request	"{""author_name"": ""局面"", ""suid"": ""8QMc2X1Y6oQbuj7d""}"	30877	news.qq.com
+90014	【每日common daily】+ qie_腾讯新闻潜望	qie_腾讯新闻潜望	news-tencent	1	request	"{""author_name"": ""腾讯新闻潜望"", ""suid"": ""8QMf2XxU6YwYuz4=""}"	30877	news.qq.com
+90015	【每日common daily】+ qie_腾讯新闻深网	qie_腾讯新闻深网	news-tencent	1	request	"{""author_name"": ""腾讯新闻深网"", ""suid"": ""8QMX33xf5YUevTY=""}"	30877	news.qq.com
+90016	【每日common daily】+ qie_十三邀	qie_十三邀	news-tencent	1	request	"{""author_name"": ""十三邀"", ""suid"": ""8QMd239b5YcYsDzZ""}"	30877	news.qq.com
+90017	【每日common daily】+ qie_中国人的一天	qie_中国人的一天	news-tencent	1	request	"{""author_name"": ""中国人的一天"", ""suid"": ""8QMf3npa7YMVsDnd""}"	30877	news.qq.com
+90018	【每日common daily】+ qie_腾讯新闻谷雨影像	qie_腾讯新闻谷雨影像	news-tencent	1	request	"{""author_name"": ""腾讯新闻谷雨影像"", ""suid"": ""8QMf2Htc6oIbvj/c""}"	30877	news.qq.com
+90019	【每日common daily】+ qie_较真	qie_较真	news-tencent	1	request	"{""author_name"": ""较真"", ""suid"": ""8QMc2Xde5YQfvTbd""}"	30877	news.qq.com
+90020	【每日common daily】+ qie_鹅眼	qie_鹅眼	news-tencent	1	request	"{""author_name"": ""鹅眼"", ""suid"": ""8QMd3Hdf6IIfuD/e""}"	30877	news.qq.com
+90021	【每日common daily】+ qie_腾讯新闻棱镜	qie_腾讯新闻棱镜	news-tencent	1	request	"{""author_name"": ""腾讯新闻棱镜"", ""suid"": ""8QMd2n1V5YAbvzzf""}"	30877	news.qq.com

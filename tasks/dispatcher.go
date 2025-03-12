@@ -50,8 +50,43 @@ func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
 
 	// 异步处理续约响应
 	go func() {
-		for range keepAliveCh {
-			// 保持租约活跃
+		for {
+			select {
+			case <-ctx.Done():
+				log.Printf("Worker %s 上下文已取消，停止租约续约 \n", workerID)
+				return
+			case resp, ok := <-keepAliveCh:
+				if !ok {
+					log.Printf("Worker %s 租约续约通道已关闭，Worker可能已下线 \n", workerID)
+					return
+				}
+				if resp == nil {
+					log.Printf("Worker %s 租约续约失败，尝试重新注册 \n", workerID)
+					// 重新注册
+					newResp, err := client.Grant(ctx, 10)
+					if err != nil {
+						log.Printf("Worker %s 重新获取租约失败: %v \n", workerID, err)
+						return
+					}
+
+					// update lease Id
+					worker.Lease = newResp.ID
+					workerData, _ := json.Marshal(worker)
+					_, err = client.Put(ctx, common.WorkersKey+workerID, string(workerData), clientv3.WithLease(newResp.ID))
+					if err != nil {
+						log.Printf("Worker %s 使用新租约重新注册失败: %v \n", workerID, err)
+						return
+					}
+					keepAliveCh, err = client.KeepAlive(ctx, newResp.ID)
+					if err != nil {
+						log.Printf("Worker %s 重新建立租约续约通道失败： %v\n", workerID, err)
+						return
+					}
+
+					log.Printf("Worker %s 已成功重新注册 \n", workerID)
+				}
+				log.Printf("Worker %s 租约成功续约，TTL: %d", workerID, resp.TTL)
+			}
 		}
 	}()
 

@@ -26,7 +26,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
+	defer func(client *clientv3.Client) {
+		err := client.Close()
+		if err != nil {
+			log.Printf("close etcd client err: %v", err)
+		}
+	}(client)
+
 	// get hostname
 	hostname, err := os.Hostname()
 	if err != nil {

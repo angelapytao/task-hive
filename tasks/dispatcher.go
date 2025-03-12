@@ -98,7 +98,7 @@ func SubmitTask(client *clientv3.Client, task model.Task) error {
 	if task.Priority == 0 {
 		task.Priority = 5 // 默认优先级
 	}
-	task.Status = "pending"
+	task.Status = common.PENDING
 	task.CreateTime = time.Now()
 
 	data, err := json.Marshal(task)
@@ -173,7 +173,7 @@ func StartDispatcher(client *clientv3.Client) {
 				}
 
 				// 构建事务：原子化移动任务
-				task.Status = "processing"
+				task.Status = common.PROCESSING
 				taskData, _ := json.Marshal(task)
 
 				txn := client.Txn(context.Background())
@@ -228,7 +228,7 @@ func StartWorkerMonitor(client *clientv3.Client) {
 						continue
 					}
 
-					task.Status = "pending"
+					task.Status = common.PENDING
 					taskData, _ := json.Marshal(task)
 
 					txn := client.Txn(context.Background())

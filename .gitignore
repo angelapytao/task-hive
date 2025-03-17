@@ -1,0 +1,28 @@
+# 编译生成的文件
+/task-hive
+./task-hive
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 测试二进制文件
+*.test
+
+# 输出文件
+*.out
+
+# 依赖目录
+/vendor/
+
+# IDE文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志文件
+*.log
+
+# 系统文件
+.DS_Store

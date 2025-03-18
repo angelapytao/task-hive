@@ -2,10 +2,11 @@ package tasks
 
 import (
 	"context"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"log"
-	"task-hive/common"
+
 	"time"
 )
 

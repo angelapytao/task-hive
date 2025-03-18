@@ -3,9 +3,9 @@ package tasks
 import (
 	"encoding/json"
 	"fmt"
+	"gitlab.ituchong.com/tc-common/common-task-hive/model"
 	"path/filepath"
 	"runtime"
-	"task-hive/model"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -61,7 +61,6 @@ func StartSpiderTask(client *clientv3.Client) {
 			Priority:   5,
 			CreateTime: time.Now(),
 			Type:       "spider",
-			//ExecuteFunc: ProcessSpiderTask,
 		}
 
 		// 提交任务到分布式系统

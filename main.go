@@ -3,22 +3,22 @@ package main
 import (
 	"context"
 	"flag"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
+	"gitlab.ituchong.com/tc-common/common-task-hive/tasks"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
-	"task-hive/common"
-	"task-hive/tasks"
 	"time"
 )
 
 func main() {
-	workerCount := flag.Int("workerCount", 1, "Number of workers")
+	workerCount := flag.Int("workerCount", 10, "Number of workers")
 	flag.Parse()
 
-	// 初始化etcd客户端889
+	// 初始化etcd客户端
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{common.EtcdEndpoints},
 		DialTimeout: 5 * time.Second,
@@ -51,7 +51,7 @@ func main() {
 			defer wg.Done()
 			tasks.StartDispatcher(client)
 			// 启动微信任务
-			tasks.StartSpiderTask(client)
+			//tasks.StartSpiderTask(client)
 		}()
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func main() {
 
 	// 处理信号
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
 	<-sigChan
 
 	log.Println("正在关闭服务...")

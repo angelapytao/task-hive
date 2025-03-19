@@ -15,8 +15,10 @@ import (
 )
 
 func main() {
-	workerCount := flag.Int("workerCount", 10, "Number of workers")
+	workerCount := flag.Int("workerCount", 1, "Number of workers")
 	flag.Parse()
+
+	log.Printf("workerCount: %d", *workerCount)
 
 	// 初始化etcd客户端
 	client, err := clientv3.New(clientv3.Config{
@@ -49,7 +51,8 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			tasks.StartDispatcher(client)
+
+			tasks.StartDispatcher(client, ctx)
 			// 启动微信任务
 			//tasks.StartSpiderTask(client)
 		}()
@@ -64,7 +67,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			tasks.StartWorkerMonitor(client)
+			tasks.StartWorkerMonitor(client, ctx)
 		}()
 	})
 	if err != nil {
@@ -93,7 +96,17 @@ func main() {
 
 	log.Println("正在关闭服务...")
 	cancel()
+	// 添加超时机制
+	waitCh := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitCh)
+	}()
 
-	wg.Wait()
-	log.Println("所有服务已经关闭")
+	select {
+	case <-waitCh:
+		log.Println("所有服务已经关闭")
+	case <-time.After(time.Second * 10):
+		log.Println("服务关闭超时，强制退出")
+	}
 }

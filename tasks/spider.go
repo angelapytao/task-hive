@@ -15,7 +15,7 @@ import (
 
 const (
 	//SpiderExcelFile = "../spider.xlsx"
-	SpiderExcelFile = "../task.xlsx"
+	SpiderExcelFile = "task.xlsx"
 )
 
 func StartSpiderTask(client *clientv3.Client) {
@@ -23,7 +23,7 @@ func StartSpiderTask(client *clientv3.Client) {
 	// 获取当前文件所在目录
 	_, filename, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filepath.Dir(filename))
-	excelPath := filepath.Join(projectRoot, "spider.xlsx")
+	excelPath := filepath.Join(projectRoot, SpiderExcelFile)
 
 	// 打印路径信息
 	logrus.Infof("Excel文件路径: %s", excelPath)

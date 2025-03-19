@@ -26,6 +26,11 @@ type Worker struct {
 	Capacity      int // 最大并发任务数
 }
 
+// RegisterTaskProcessor 注册任务处理器
+func RegisterTaskProcessor(taskType string, processor func(task *model.Task) (string, error)) {
+	taskProcessors[taskType] = processor
+}
+
 // ProcessTasks Worker处理任务
 func (w *Worker) ProcessTasks(client *clientv3.Client) {
 	watchPrefix := common.ProcessingKey + w.ID + "/"

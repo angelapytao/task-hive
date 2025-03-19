@@ -1,112 +1,46 @@
 package main
 
 import (
-	"context"
 	"flag"
-	"gitlab.ituchong.com/tc-common/common-task-hive/common"
-	"gitlab.ituchong.com/tc-common/common-task-hive/tasks"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"gitlab.ituchong.com/tc-common/common-task-hive/model"
+	"gitlab.ituchong.com/tc-common/common-task-hive/taskhive"
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
-	"time"
 )
 
 func main() {
 	workerCount := flag.Int("workerCount", 1, "Number of workers")
 	flag.Parse()
 
-	log.Printf("workerCount: %d", *workerCount)
+	// 创建配置
+	config := taskhive.DefaultConfig()
+	config.WorkerCount = *workerCount
 
-	// 初始化etcd客户端
-	client, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{common.EtcdEndpoints},
-		DialTimeout: 5 * time.Second,
+	// 创建TaskHive实例
+	th, err := taskhive.New(config)
+	if err != nil {
+		log.Fatalf("创建TaskHive失败: %v", err)
+	}
+
+	// 注册自定义任务处理器
+	th.RegisterTaskProcessor("custom", func(task *model.Task) (string, error) {
+		// 处理自定义任务的逻辑
+		log.Printf("处理自定义任务: %s", task.ID)
+		return "自定义任务处理完成", nil
 	})
-	if err != nil {
-		log.Fatal(err)
+
+	// 启动TaskHive
+	if err := th.Start(); err != nil {
+		log.Fatalf("启动TaskHive失败: %v", err)
 	}
-	defer func(client *clientv3.Client) {
-		err := client.Close()
-		if err != nil {
-			log.Printf("close etcd client err: %v", err)
-		}
-	}(client)
-
-	// get hostname
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Printf("Get hostname: %v, Use RandomId\n", err)
-		hostname = common.GenerateRandomID()
-	}
-
-	wg := &sync.WaitGroup{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// 创建dispatcher领导者选举
-	dispatcherElection, err := tasks.NewLeaderElection(client, common.RoleDispatcher, hostname, func() {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			tasks.StartDispatcher(client, ctx)
-			// 启动微信任务
-			//tasks.StartSpiderTask(client)
-		}()
-	})
-	if err != nil {
-		log.Fatalf("创建dispatcher选举失败: %v \n", err)
-	}
-	defer dispatcherElection.Close()
-
-	// 创建monitor领导者选举
-	monitorElection, err := tasks.NewLeaderElection(client, common.RoleMonitor, hostname, func() {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tasks.StartWorkerMonitor(client, ctx)
-		}()
-	})
-	if err != nil {
-		log.Fatalf("创建monitor选举失败: %v \n", err)
-	}
-	defer monitorElection.Close()
-
-	dispatcherElection.Start(ctx)
-	monitorElection.Start(ctx)
-
-	// 所有实例都启动 Worker
-	for i := 0; i < *workerCount; i++ {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			worker := tasks.RegisterWorker(ctx, client)
-			go worker.ProcessTasks(client)
-			log.Printf("Started worker %d on %s\n", index+1, hostname)
-		}(i)
-	}
+	defer th.Stop()
 
 	// 处理信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
 	<-sigChan
 
-	log.Println("正在关闭服务...")
-	cancel()
-	// 添加超时机制
-	waitCh := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(waitCh)
-	}()
-
-	select {
-	case <-waitCh:
-		log.Println("所有服务已经关闭")
-	case <-time.After(time.Second * 10):
-		log.Println("服务关闭超时，强制退出")
-	}
+	log.Println("收到退出信号，正在关闭...")
 }

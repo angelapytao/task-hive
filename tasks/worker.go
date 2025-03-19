@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
+	"gitlab.ituchong.com/tc-common/common-task-hive/model"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"log"
 	"math/rand"
-	"task-hive/common"
-	"task-hive/model"
 	"time"
 )
 
@@ -26,10 +26,15 @@ type Worker struct {
 	Capacity      int // 最大并发任务数
 }
 
+// RegisterTaskProcessor 注册任务处理器
+func RegisterTaskProcessor(taskType string, processor func(task *model.Task) (string, error)) {
+	taskProcessors[taskType] = processor
+}
+
 // ProcessTasks Worker处理任务
 func (w *Worker) ProcessTasks(client *clientv3.Client) {
 	watchPrefix := common.ProcessingKey + w.ID + "/"
-	log.Printf("model.Worker %s 开始监听任务: %s", w.ID, watchPrefix)
+	log.Printf("Worker %s 开始监听任务: %s", w.ID, watchPrefix)
 
 	watcher := clientv3.NewWatcher(client)
 	defer watcher.Close()

@@ -2,10 +2,11 @@ package tasks
 
 import (
 	"context"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"log"
-	"task-hive/common"
+
 	"time"
 )
 
@@ -44,33 +45,39 @@ func NewLeaderElection(client *clientv3.Client, role, id string, leaderFunc func
 func (le *LeaderElection) Start(ctx context.Context) {
 	go func() {
 		for {
-			// 尝试竞选
-			if err := le.election.Campaign(ctx, le.id); err != nil {
-				log.Printf("竞选%s领导者失败: %v", le.role, err)
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			log.Printf("成功当选为%s领导者", le.role)
-			le.isLeader = true
-
-			// 执行领导者功能
-			log.Printf("执行领导者功能")
-			//go le.leaderFunc()
-			le.leaderFunc()
-
-			// 监听领导权变化
-			observeChan := le.election.Observe(ctx)
-			for resp := range observeChan {
-				if string(resp.Kvs[0].Value) != le.id {
-					log.Printf("失去%s领导权", le.role)
-					le.isLeader = false
-					break
+			select {
+			case <-ctx.Done():
+				log.Printf("%s leader election stopped\n", le.role)
+				return
+			default:
+				// 尝试竞选
+				if err := le.election.Campaign(ctx, le.id); err != nil {
+					log.Printf("竞选%s领导者失败: %v", le.role, err)
+					time.Sleep(5 * time.Second)
+					continue
 				}
-			}
 
-			log.Printf("重新竞选%s领导者...", le.role)
-			le.isLeader = false
+				log.Printf("成功当选为%s领导者", le.role)
+				le.isLeader = true
+
+				// 执行领导者功能
+				log.Printf("执行领导者功能")
+				//go le.leaderFunc()
+				le.leaderFunc()
+
+				// 监听领导权变化
+				observeChan := le.election.Observe(ctx)
+				for resp := range observeChan {
+					if string(resp.Kvs[0].Value) != le.id {
+						log.Printf("失去%s领导权", le.role)
+						le.isLeader = false
+						break
+					}
+				}
+
+				log.Printf("重新竞选%s领导者...", le.role)
+				le.isLeader = false
+			}
 		}
 	}()
 }

@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
+	"gitlab.ituchong.com/tc-common/common-task-hive/model"
 	"log"
 	"math/rand"
 	"os"
 	"sort"
-	"task-hive/common"
-	"task-hive/model"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -111,89 +111,95 @@ func SubmitTask(client *clientv3.Client, task model.Task) error {
 }
 
 // StartDispatcher 启动任务分发器
-func StartDispatcher(client *clientv3.Client) {
+func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 	log.Println("Starting dispatcher...")
 
 	go func() {
 		for {
-			// 获取并按优先级排序待处理任务
-			pendingResp, err := client.Get(context.Background(), common.PendingTasksKey,
-				clientv3.WithPrefix())
-			if err != nil {
-				log.Println("获取任务失败:", err)
-				time.Sleep(time.Second)
-				continue
-			}
-
-			tasks := make([]model.Task, 0)
-			for _, kv := range pendingResp.Kvs {
-				var task model.Task
-				if err := json.Unmarshal(kv.Value, &task); err != nil {
+			select {
+			case <-ctx.Done():
+				log.Println("Dispatcher 收到退出信号，正在停止...")
+				return
+			default:
+				// 获取并按优先级排序待处理任务
+				pendingResp, err := client.Get(context.Background(), common.PendingTasksKey,
+					clientv3.WithPrefix())
+				if err != nil {
+					log.Println("获取任务失败:", err)
+					time.Sleep(time.Second)
 					continue
 				}
-				tasks = append(tasks, task)
-			}
 
-			// 按优先级排序
-			sort.Slice(tasks, func(i, j int) bool {
-				return tasks[i].Priority > tasks[j].Priority
-			})
+				tasks := make([]model.Task, 0)
+				for _, kv := range pendingResp.Kvs {
+					var task model.Task
+					if err := json.Unmarshal(kv.Value, &task); err != nil {
+						continue
+					}
+					tasks = append(tasks, task)
+				}
 
-			// 获取可用Worker并计算负载
-			workersResp, err := client.Get(context.Background(), common.WorkersKey,
-				clientv3.WithPrefix())
-			if err != nil || len(workersResp.Kvs) == 0 {
-				time.Sleep(time.Second)
-				continue
-			}
+				// 按优先级排序
+				sort.Slice(tasks, func(i, j int) bool {
+					return tasks[i].Priority > tasks[j].Priority
+				})
 
-			workers := make([]Worker, 0)
-			for _, kv := range workersResp.Kvs {
-				var worker Worker
-				if err := json.Unmarshal(kv.Value, &worker); err != nil {
+				// 获取可用Worker并计算负载
+				workersResp, err := client.Get(context.Background(), common.WorkersKey,
+					clientv3.WithPrefix())
+				if err != nil || len(workersResp.Kvs) == 0 {
+					time.Sleep(time.Second)
 					continue
 				}
-				workers = append(workers, worker)
+
+				workers := make([]Worker, 0)
+				for _, kv := range workersResp.Kvs {
+					var worker Worker
+					if err := json.Unmarshal(kv.Value, &worker); err != nil {
+						continue
+					}
+					workers = append(workers, worker)
+				}
+
+				// 按负载排序
+				sort.Slice(workers, func(i, j int) bool {
+					return workers[i].TaskCount < workers[j].TaskCount
+				})
+
+				// 分配任务给负载最小的Worker
+				for _, task := range tasks {
+					if len(workers) == 0 {
+						break
+					}
+
+					selectedWorker := workers[0]
+					if selectedWorker.TaskCount >= selectedWorker.Capacity {
+						break
+					}
+
+					// 构建事务：原子化移动任务
+					task.Status = common.PROCESSING
+					taskData, _ := json.Marshal(task)
+
+					txn := client.Txn(context.Background())
+					txnResp, err := txn.
+						If(clientv3.Compare(clientv3.Version(common.PendingTasksKey+task.ID), ">", 0)).
+						Then(
+							clientv3.OpDelete(common.PendingTasksKey+task.ID),
+							clientv3.OpPut(common.ProcessingKey+selectedWorker.ID+"/"+task.ID,
+								string(taskData), clientv3.WithLease(clientv3.NoLease)),
+						).
+						Commit()
+
+					if err == nil && txnResp.Succeeded {
+						log.Printf("任务 %s 已分配给 Worker %s", task.ID, selectedWorker.ID)
+						selectedWorker.TaskCount++
+						workers = workers[1:] // 移除已分配的worker
+					}
+				}
+
+				time.Sleep(500 * time.Millisecond)
 			}
-
-			// 按负载排序
-			sort.Slice(workers, func(i, j int) bool {
-				return workers[i].TaskCount < workers[j].TaskCount
-			})
-
-			// 分配任务给负载最小的Worker
-			for _, task := range tasks {
-				if len(workers) == 0 {
-					break
-				}
-
-				selectedWorker := workers[0]
-				if selectedWorker.TaskCount >= selectedWorker.Capacity {
-					break
-				}
-
-				// 构建事务：原子化移动任务
-				task.Status = common.PROCESSING
-				taskData, _ := json.Marshal(task)
-
-				txn := client.Txn(context.Background())
-				txnResp, err := txn.
-					If(clientv3.Compare(clientv3.Version(common.PendingTasksKey+task.ID), ">", 0)).
-					Then(
-						clientv3.OpDelete(common.PendingTasksKey+task.ID),
-						clientv3.OpPut(common.ProcessingKey+selectedWorker.ID+"/"+task.ID,
-							string(taskData), clientv3.WithLease(clientv3.NoLease)),
-					).
-					Commit()
-
-				if err == nil && txnResp.Succeeded {
-					log.Printf("任务 %s 已分配给 Worker %s", task.ID, selectedWorker.ID)
-					selectedWorker.TaskCount++
-					workers = workers[1:] // 移除已分配的worker
-				}
-			}
-
-			time.Sleep(500 * time.Millisecond)
 		}
 	}()
 
@@ -201,11 +207,19 @@ func StartDispatcher(client *clientv3.Client) {
 }
 
 // StartWorkerMonitor 监控Worker故障并重新分配任务
-func StartWorkerMonitor(client *clientv3.Client) {
+func StartWorkerMonitor(client *clientv3.Client, ctx context.Context) {
 	watcher := clientv3.NewWatcher(client)
 	defer watcher.Close()
 
 	watchChan := watcher.Watch(context.Background(), common.WorkersKey, clientv3.WithPrefix())
+
+	// 监听上下文取消
+	go func() {
+		<-ctx.Done()
+		log.Println("Monitor 收到退出信号，正在停止...")
+		watcher.Close()
+	}()
+
 	for resp := range watchChan {
 		for _, ev := range resp.Events {
 			if ev.Type == clientv3.EventTypeDelete {

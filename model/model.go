@@ -2,7 +2,8 @@ package model
 
 import (
 	"encoding/json"
-	"task-hive/common"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
+
 	"time"
 )
 

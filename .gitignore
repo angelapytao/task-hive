@@ -1,5 +1,6 @@
 # 编译生成的文件
 /task-hive
+./task-hive
 *.exe
 *.dll
 *.so

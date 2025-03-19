@@ -1,4 +1,4 @@
-module task-hive
+module gitlab.ituchong.com/tc-common/common-task-hive
 
 go 1.23.2
 

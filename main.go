@@ -32,8 +32,8 @@ func (w *WechatTaskGenerator) GenerateTasks(client *clientv3.Client) error {
 
 	// 获取当前文件所在目录
 	_, filename, _, _ := runtime.Caller(0)
-	projectRoot := filepath.Dir(filepath.Dir(filename))
-	excelPath := filepath.Join(projectRoot, "./task.xlsx")
+	projectRoot := filepath.Dir(filename)
+	excelPath := filepath.Join(projectRoot, "spider.xlsx")
 
 	// 打印路径信息
 	logrus.Infof("Excel文件路径: %s", excelPath)

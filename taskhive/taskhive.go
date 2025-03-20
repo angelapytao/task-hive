@@ -106,16 +106,55 @@ func (th *TaskHive) startTasks() {
 	}
 }
 
+//// startTasks 启动所有注册的任务生成器
+//func (th *TaskHive) startTasks() {
+//	for _, generator := range th.taskGenerators {
+//		generator := generator // 创建副本避免闭包问题
+//		th.wg.Add(1)
+//		go func() {
+//			defer th.wg.Done()
+//			log.Printf("启动任务生成器: %s", generator.Name())
+//
+//			// 立即执行一次任务生成
+//			if err := generator.GenerateTasks(th.client); err != nil {
+//				log.Printf("任务生成器 %s 执行失败: %v", generator.Name(), err)
+//			}
+//
+//			// 设置定时器，每隔一段时间执行一次任务生成
+//			ticker := time.NewTicker(5 * time.Minute) // 可以根据需要调整间隔时间
+//			defer ticker.Stop()
+//
+//			for {
+//				select {
+//				case <-th.ctx.Done():
+//					log.Printf("任务生成器 %s 收到停止信号", generator.Name())
+//					return
+//				case <-ticker.C:
+//					log.Printf("定时执行任务生成器: %s", generator.Name())
+//					if err := generator.GenerateTasks(th.client); err != nil {
+//						log.Printf("任务生成器 %s 执行失败: %v", generator.Name(), err)
+//					}
+//				}
+//			}
+//		}()
+//	}
+//}
+
 // Start 启动TaskHive
 func (th *TaskHive) Start() error {
 	// 创建dispatcher领导者选举
 	dispatcherElection, err := tasks.NewLeaderElection(th.client, common.RoleDispatcher, th.hostname, func() {
-		th.wg.Add(1)
+		th.wg.Add(2)
+		// 启动任务调度器
 		go func() {
 			defer th.wg.Done()
 			tasks.StartDispatcher(th.client, th.ctx)
+		}()
 
-			//th.startTasks()
+		// 并行启动任务生成器
+		go func() {
+			defer th.wg.Done()
+			th.startTasks()
 		}()
 	})
 	if err != nil {

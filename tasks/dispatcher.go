@@ -321,21 +321,35 @@ func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
 	task.Status = common.PROCESSING
 	taskData, _ := json.Marshal(task)
 
-	// 将任务放入Worker的处理队列
-	processingKey := common.ProcessingKey + selectedWorker.ID + "/" + task.ID
-	_, err = client.Put(ctx, processingKey, string(taskData))
-	if err != nil {
-		log.Printf("分配任务失败: %v", err)
-		return
-	}
-
-	// 删除待处理队列中的任务
-	client.Delete(ctx, common.PendingTasksKey+task.ID)
-
 	// 更新Worker的任务计数
 	selectedWorker.TaskCount++
 	workerData, _ := json.Marshal(selectedWorker)
-	client.Put(ctx, common.WorkersKey+selectedWorker.ID, string(workerData))
+
+	// 使用事务确保操作的原子性
+	processingKey := common.ProcessingKey + selectedWorker.ID + "/" + task.ID
+	pendingKey := common.PendingTasksKey + task.ID
+	workerKey := common.WorkersKey + selectedWorker.ID
+
+	// 构建事务
+	txn := client.Txn(ctx)
+	txnResp, err := txn.
+		If(clientv3.Compare(clientv3.Version(pendingKey), ">", 0)).
+		Then(
+			clientv3.OpPut(processingKey, string(taskData)),
+			clientv3.OpDelete(pendingKey),
+			clientv3.OpPut(workerKey, string(workerData)),
+		).
+		Commit()
+
+	if err != nil {
+		log.Printf("分配任务事务失败: %v", err)
+		return
+	}
+
+	if !txnResp.Succeeded {
+		log.Printf("任务 %s 可能已被其他调度器分配", task.ID)
+		return
+	}
 
 	log.Printf("任务 %s 已分配给Worker %s", task.ID, selectedWorker.ID)
 }

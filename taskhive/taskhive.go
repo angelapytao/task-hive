@@ -22,6 +22,15 @@ type TaskHive struct {
 	dispatcherElect *tasks.LeaderElection
 	monitorElect    *tasks.LeaderElection
 	workers         []*tasks.Worker
+	taskGenerators  []TaskGenerator // 添加任务生成器列表
+}
+
+// TaskGenerator 定义任务生成器接口
+type TaskGenerator interface {
+	// GenerateTasks 生成任务并提交到系统
+	GenerateTasks(client *clientv3.Client) error
+	// Name 返回任务生成器名称
+	Name() string
 }
 
 // Config 配置选项
@@ -64,13 +73,37 @@ func New(config *Config) (*TaskHive, error) {
 	wg := &sync.WaitGroup{}
 
 	return &TaskHive{
-		client:   client,
-		ctx:      ctx,
-		cancel:   cancel,
-		wg:       wg,
-		hostname: hostname,
-		workers:  make([]*tasks.Worker, 0, config.WorkerCount),
+		client:         client,
+		ctx:            ctx,
+		cancel:         cancel,
+		wg:             wg,
+		hostname:       hostname,
+		workers:        make([]*tasks.Worker, 0, config.WorkerCount),
+		taskGenerators: make([]TaskGenerator, 0), // 初始化任务生成器列表
 	}, nil
+}
+
+// RegisterTaskGenerator 注册任务生成器
+func (th *TaskHive) RegisterTaskGenerator(generator TaskGenerator) {
+	th.taskGenerators = append(th.taskGenerators, generator)
+	log.Printf("注册任务生成器: %s", generator.Name())
+}
+
+// startTasks 启动所有注册的任务生成器
+func (th *TaskHive) startTasks() {
+	for _, generator := range th.taskGenerators {
+		generator := generator // 创建副本避免闭包问题
+		th.wg.Add(1)
+		go func() {
+			defer th.wg.Done()
+			log.Printf("启动任务生成器: %s", generator.Name())
+
+			// 执行任务生成
+			if err := generator.GenerateTasks(th.client); err != nil {
+				log.Printf("任务生成器 %s 执行失败: %v", generator.Name(), err)
+			}
+		}()
+	}
 }
 
 // Start 启动TaskHive
@@ -81,6 +114,8 @@ func (th *TaskHive) Start() error {
 		go func() {
 			defer th.wg.Done()
 			tasks.StartDispatcher(th.client, th.ctx)
+
+			//th.startTasks()
 		}()
 	})
 	if err != nil {

@@ -67,7 +67,28 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 							// 重试逻辑
 							task.RetryCount++
 							task.Status = common.PENDING
-							SubmitTask(client, task)
+
+							// 如果RetryDelay为0，则使用指数退避策略计算延迟时间
+							if task.RetryDelay == 0 {
+								// 基础延迟为2秒，每次重试延迟时间翻倍，并添加一些随机性
+								baseDelay := 2 * time.Second
+								retryDelay := time.Duration(1<<(task.RetryCount-1)) * baseDelay
+								// 添加最多30%的随机抖动，避免多个任务同时重试
+								jitter := time.Duration(rand.Float64() * 0.3 * float64(retryDelay))
+								task.RetryDelay = retryDelay + jitter
+							}
+							log.Printf("任务 %s 将在 %.2f 秒后重试 (第 %d 次重试)",
+								task.ID, task.RetryDelay.Seconds(), task.RetryCount)
+
+							// 将任务提交到延迟队列
+							delayedTask, _ := json.Marshal(task)
+							delayKey := fmt.Sprintf("%s%s", common.DelayedKey, task.ID)
+							client.Put(ctx, delayKey, string(delayedTask))
+
+							// 设置一个带TTL的键，用于触发延迟任务
+							lease, _ := client.Grant(ctx, int64(task.RetryDelay.Seconds()))
+							triggerKey := fmt.Sprintf("%s%s", common.DelayedTriggerKey, task.ID)
+							client.Put(ctx, triggerKey, task.ID, clientv3.WithLease(lease.ID))
 						} else {
 							// 超过重试次数，移至失败队列
 							taskData, _ := json.Marshal(task)

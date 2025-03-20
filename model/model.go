@@ -15,6 +15,7 @@ type Task struct {
 	Status     common.TaskStatus `json:"status"`   // pending, processing, completed, failed
 	CreateTime time.Time         `json:"createTime"`
 	RetryCount int               `json:"retryCount"`
+	RetryDelay time.Duration     `json:"retryDelay"`
 	Result     string            `json:"result"`
 	Error      string            `json:"error"`
 	Type       string            `json:"type"`

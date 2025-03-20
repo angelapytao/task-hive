@@ -14,7 +14,7 @@ import (
 
 // 全局任务处理器映射
 var taskProcessors = map[string]func(task *model.Task) (string, error){
-	"spider": ProcessSpiderTask,
+	//"spider": ProcessSpiderTask,
 }
 
 // Worker 表示工作节点
@@ -67,23 +67,90 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 							// 重试逻辑
 							task.RetryCount++
 							task.Status = common.PENDING
-							SubmitTask(client, task)
+
+							// 如果RetryDelay为0，则使用指数退避策略计算延迟时间
+							if task.RetryDelay == 0 {
+								// 基础延迟为2秒，每次重试延迟时间翻倍，并添加一些随机性
+								baseDelay := 2 * time.Second
+								retryDelay := time.Duration(1<<(task.RetryCount-1)) * baseDelay
+								// 添加最多30%的随机抖动，避免多个任务同时重试
+								jitter := time.Duration(rand.Float64() * 0.3 * float64(retryDelay))
+								task.RetryDelay = retryDelay + jitter
+							}
+							log.Printf("任务 %s 将在 %.2f 秒后重试 (第 %d 次重试)",
+								task.ID, task.RetryDelay.Seconds(), task.RetryCount)
+
+							// 使用事务原子性地处理延迟任务
+							delayedTask, _ := json.Marshal(task)
+							delayKey := fmt.Sprintf("%s%s", common.DelayedKey, task.ID)
+							processingKey := common.ProcessingKey + w.ID + "/" + task.ID
+
+							// 创建租约
+							lease, err := client.Grant(ctx, int64(task.RetryDelay.Seconds()))
+							if err != nil {
+								log.Printf("创建租约失败: %v", err)
+								return
+							}
+
+							triggerKey := fmt.Sprintf("%s%s", common.DelayedTriggerKey, task.ID)
+
+							// 使用事务确保原子性
+							txn := client.Txn(ctx)
+							_, err = txn.Then(
+								clientv3.OpPut(delayKey, string(delayedTask)),
+								clientv3.OpPut(triggerKey, task.ID, clientv3.WithLease(lease.ID)),
+								clientv3.OpDelete(processingKey),
+							).Commit()
+
+							if err != nil {
+								log.Printf("提交延迟任务事务失败: %v", err)
+							} else {
+								// 事务成功，更新Worker任务计数
+								w.TaskCount--
+							}
 						} else {
 							// 超过重试次数，移至失败队列
 							taskData, _ := json.Marshal(task)
-							client.Put(ctx, common.FailedKey+task.ID, string(taskData))
+							processingKey := common.ProcessingKey + w.ID + "/" + task.ID
+							failedKey := common.FailedKey + task.ID
+
+							// 使用事务确保原子性
+							txn := client.Txn(ctx)
+							_, err := txn.Then(
+								clientv3.OpPut(failedKey, string(taskData)),
+								clientv3.OpDelete(processingKey),
+							).Commit()
+
+							if err != nil {
+								log.Printf("提交失败任务事务失败: %v", err)
+							} else {
+								// 事务成功，更新Worker任务计数
+								w.TaskCount--
+							}
 						}
 					} else {
 						// 任务成功完成
 						task.Status = common.COMPLETED
 						task.Result = result
 						taskData, _ := json.Marshal(task)
-						client.Put(ctx, common.CompletedKey+task.ID, string(taskData))
-					}
 
-					// 删除处理中的任务
-					client.Delete(ctx, common.ProcessingKey+w.ID+"/"+task.ID)
-					w.TaskCount--
+						processingKey := common.ProcessingKey + w.ID + "/" + task.ID
+						completedKey := common.CompletedKey + task.ID
+
+						// 使用事务确保原子性
+						txn := client.Txn(ctx)
+						_, err := txn.Then(
+							clientv3.OpPut(completedKey, string(taskData)),
+							clientv3.OpDelete(processingKey),
+						).Commit()
+
+						if err != nil {
+							log.Printf("提交完成任务事务失败: %v", err)
+						} else {
+							// 事务成功，更新Worker任务计数
+							w.TaskCount--
+						}
+					}
 				}(ctx, task)
 			}
 		}

@@ -3,12 +3,14 @@ package common
 import "time"
 
 const (
-	EtcdEndpoints   = "localhost:2379"
-	PendingTasksKey = "/tasks/pending/"
-	ProcessingKey   = "/tasks/processing/"
-	CompletedKey    = "/tasks/completed/"
-	FailedKey       = "/tasks/failed/"
-	WorkersKey      = "/workers/"
+	EtcdEndpoints     = "localhost:2379"
+	PendingTasksKey   = "/tasks/pending/"
+	ProcessingKey     = "/tasks/processing/"
+	CompletedKey      = "/tasks/completed/"
+	FailedKey         = "/tasks/failed/"
+	DelayedKey        = "/tasks/delayed/"
+	DelayedTriggerKey = "/tasks/delayed_trigger/"
+	WorkersKey        = "/workers/"
 
 	LeaderKey = "/task-hive/leader/"
 

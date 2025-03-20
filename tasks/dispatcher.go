@@ -110,8 +110,8 @@ func SubmitTask(client *clientv3.Client, task model.Task) error {
 	return err
 }
 
-// StartDispatcher 启动任务分发器
-func StartDispatcher(client *clientv3.Client, ctx context.Context) {
+// StartDispatcher1 启动任务分发器 deprecated
+func StartDispatcher1(client *clientv3.Client, ctx context.Context) {
 	log.Println("Starting dispatcher...")
 
 	go func() {
@@ -204,6 +204,154 @@ func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 	}()
 
 	log.Println("Dispatcher started successfully")
+}
+
+// StartDispatcher 启动任务调度器
+func StartDispatcher(client *clientv3.Client, ctx context.Context) {
+	log.Println("Starting task dispatcher...")
+
+	// 创建两个watcher，一个用于监听待处理任务，一个用于监听延迟任务触发器
+	pendingWatcher := clientv3.NewWatcher(client)
+	delayedWatcher := clientv3.NewWatcher(client)
+	defer pendingWatcher.Close()
+	defer delayedWatcher.Close()
+
+	// 监听待处理任务
+	pendingWatchChan := pendingWatcher.Watch(ctx, common.PendingTasksKey, clientv3.WithPrefix())
+
+	// 监听延迟任务触发器的删除事件（TTL过期）
+	delayedWatchChan := delayedWatcher.Watch(ctx, common.DelayedTriggerKey, clientv3.WithPrefix())
+
+	// 处理待处理任务
+	go func() {
+		for resp := range pendingWatchChan {
+			for _, ev := range resp.Events {
+				if ev.Type == clientv3.EventTypePut {
+					// 解析任务
+					var task model.Task
+					if err := json.Unmarshal(ev.Kv.Value, &task); err != nil {
+						log.Printf("解析任务失败: %v", err)
+						continue
+					}
+
+					// 分配任务给可用的Worker
+					assignTask(ctx, client, task)
+				}
+			}
+		}
+	}()
+
+	// 处理延迟任务
+	go func() {
+		for resp := range delayedWatchChan {
+			for _, ev := range resp.Events {
+				// 当延迟触发器过期（被删除）时，从延迟队列中取出任务并重新提交
+				if ev.Type == clientv3.EventTypeDelete {
+					// 从键中提取任务ID
+					taskID := string(ev.Kv.Key)[len(common.DelayedTriggerKey):]
+
+					// 从延迟队列中获取任务
+					delayKey := common.DelayedKey + taskID
+					getResp, err := client.Get(ctx, delayKey)
+					if err != nil {
+						log.Printf("获取延迟任务失败: %v", err)
+						continue
+					}
+
+					if len(getResp.Kvs) == 0 {
+						log.Printf("延迟任务不存在: %s", taskID)
+						continue
+					}
+
+					// 解析任务
+					var task model.Task
+					if err := json.Unmarshal(getResp.Kvs[0].Value, &task); err != nil {
+						log.Printf("解析延迟任务失败: %v", err)
+						continue
+					}
+
+					// 删除延迟队列中的任务
+					client.Delete(ctx, delayKey)
+
+					// 重新提交任务到待处理队列
+					log.Printf("延迟任务 %s 触发，重新提交到待处理队列", task.ID)
+					SubmitTask(client, task)
+				}
+			}
+		}
+	}()
+
+	// 等待上下文取消
+	<-ctx.Done()
+	log.Println("Task dispatcher stopped")
+}
+
+// assignTask 分配任务给可用的Worker
+func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
+	// 获取所有可用的Worker
+	resp, err := client.Get(ctx, common.WorkersKey, clientv3.WithPrefix())
+	if err != nil {
+		log.Printf("获取Worker列表失败: %v", err)
+		return
+	}
+
+	if len(resp.Kvs) == 0 {
+		log.Println("没有可用的Worker")
+		return
+	}
+
+	// 选择一个Worker（这里可以实现更复杂的负载均衡策略）
+	var selectedWorker Worker
+	minTasks := int(^uint(0) >> 1) // 最大整数
+
+	for _, kv := range resp.Kvs {
+		var worker Worker
+		if err := json.Unmarshal(kv.Value, &worker); err != nil {
+			continue
+		}
+
+		// 选择任务数最少的Worker
+		if worker.TaskCount < minTasks {
+			selectedWorker = worker
+			minTasks = worker.TaskCount
+		}
+	}
+
+	// 将任务分配给选中的Worker
+	task.Status = common.PROCESSING
+	taskData, _ := json.Marshal(task)
+
+	// 更新Worker的任务计数
+	selectedWorker.TaskCount++
+	workerData, _ := json.Marshal(selectedWorker)
+
+	// 使用事务确保操作的原子性
+	processingKey := common.ProcessingKey + selectedWorker.ID + "/" + task.ID
+	pendingKey := common.PendingTasksKey + task.ID
+	workerKey := common.WorkersKey + selectedWorker.ID
+
+	// 构建事务
+	txn := client.Txn(ctx)
+	txnResp, err := txn.
+		If(clientv3.Compare(clientv3.Version(pendingKey), ">", 0)).
+		Then(
+			clientv3.OpPut(processingKey, string(taskData)),
+			clientv3.OpDelete(pendingKey),
+			clientv3.OpPut(workerKey, string(workerData)),
+		).
+		Commit()
+
+	if err != nil {
+		log.Printf("分配任务事务失败: %v", err)
+		return
+	}
+
+	if !txnResp.Succeeded {
+		log.Printf("任务 %s 可能已被其他调度器分配", task.ID)
+		return
+	}
+
+	log.Printf("任务 %s 已分配给Worker %s", task.ID, selectedWorker.ID)
 }
 
 // StartWorkerMonitor 监控Worker故障并重新分配任务

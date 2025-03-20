@@ -221,7 +221,11 @@ func (th *TaskHive) Stop() {
 		th.monitorElect.Close()
 	}
 	if th.client != nil {
-		th.client.Close()
+		err := th.client.Close()
+		if err != nil {
+			log.Printf("Close client err: %v", err)
+			return
+		}
 	}
 }
 

@@ -269,13 +269,30 @@ func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 						log.Printf("解析延迟任务失败: %v", err)
 						continue
 					}
+					task.Status = common.PENDING
+					task.CreateTime = time.Now()
+					taskData, _ := json.Marshal(task)
 
-					// 删除延迟队列中的任务
-					client.Delete(ctx, delayKey)
+					// 构建事务
+					txn := client.Txn(ctx)
+					txnResp, err := txn.
+						If(clientv3.Compare(clientv3.CreateRevision(delayKey), ">", 0)).
+						Then(
+							clientv3.OpDelete(delayKey),
+							clientv3.OpPut(common.PendingTasksKey+taskID, string(taskData)),
+						).Commit()
 
-					// 重新提交任务到待处理队列
+					if err != nil {
+						log.Printf("延迟任务事务处理失败: %v", err)
+						continue
+					}
+
+					if !txnResp.Succeeded {
+						log.Printf("延迟任务 %s 可能已被其他进程处理", task.ID)
+						continue
+					}
+
 					log.Printf("延迟任务 %s 触发，重新提交到待处理队列", task.ID)
-					SubmitTask(client, task)
 				}
 			}
 		}

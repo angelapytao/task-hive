@@ -14,7 +14,7 @@ import (
 
 // 全局任务处理器映射
 var taskProcessors = map[string]func(task *model.Task) (string, error){
-	"spider": ProcessSpiderTask,
+	//"spider": ProcessSpiderTask,
 }
 
 // Worker 表示工作节点

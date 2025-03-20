@@ -71,7 +71,7 @@ func (w *WechatTaskGenerator) GenerateTasks(client *clientv3.Client) error {
 			Payload:    wechatTask.ToTaskPayload(),
 			Priority:   5,
 			CreateTime: time.Now(),
-			Type:       "spider",
+			Type:       "custom",
 		}
 
 		// 提交任务到分布式系统
@@ -107,11 +107,7 @@ func main() {
 	}
 
 	// 注册自定义任务处理器
-	th.RegisterTaskProcessor("custom", func(task *model.Task) (string, error) {
-		// 处理自定义任务的逻辑
-		log.Printf("处理自定义任务: %s", task.ID)
-		return "自定义任务处理完成", nil
-	})
+	th.RegisterTaskProcessor("custom", tasks.ProcessSpiderTask)
 
 	th.RegisterTaskGenerator(&WechatTaskGenerator{})
 

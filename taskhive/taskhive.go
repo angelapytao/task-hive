@@ -35,9 +35,10 @@ type TaskGenerator interface {
 
 // Config 配置选项
 type Config struct {
-	EtcdEndpoints []string
-	WorkerCount   int
-	DialTimeout   time.Duration
+	EtcdEndpoints     []string
+	WorkerCount       int
+	DialTimeout       time.Duration
+	WorkerWaitTimeout time.Duration
 }
 
 // DefaultConfig 返回默认配置
@@ -62,7 +63,7 @@ func New(config *Config) (*TaskHive, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	common.WorkerWaitTimeout = config.WorkerWaitTimeout
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Printf("Get hostname: %v, Use RandomId\n", err)

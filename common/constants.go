@@ -21,6 +21,11 @@ const (
 	TaskTimeout = 5 * time.Minute
 )
 
+var (
+	// WorkerWaitTimeout 等待Worker节点注册的最大时间
+	WorkerWaitTimeout = 120 * time.Second
+)
+
 type TaskStatus int
 
 const (

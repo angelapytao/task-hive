@@ -210,6 +210,9 @@ func StartDispatcher1(client *clientv3.Client, ctx context.Context) {
 func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 	log.Println("Starting task dispatcher...")
 
+	// 等待Worker节点注册
+	waitForWorkers(ctx, client)
+
 	// 创建两个watcher，一个用于监听待处理任务，一个用于监听延迟任务触发器
 	pendingWatcher := clientv3.NewWatcher(client)
 	delayedWatcher := clientv3.NewWatcher(client)
@@ -301,6 +304,35 @@ func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 	// 等待上下文取消
 	<-ctx.Done()
 	log.Println("Task dispatcher stopped")
+}
+
+// waitForWorkers 等待固定时间，然后检查是否有 Worker 节点注册
+func waitForWorkers(ctx context.Context, client *clientv3.Client) {
+	log.Println("等待 Worker 节点注册...")
+
+	maxWaitTime := common.WorkerWaitTimeout
+
+	// 等待固定时间
+	select {
+	case <-ctx.Done():
+		log.Println("等待 Worker 节点被取消")
+		return
+	case <-time.After(maxWaitTime):
+	}
+
+	// 等待结束后，检查是否有 Worker 节点
+	resp, err := client.Get(ctx, common.WorkersKey, clientv3.WithPrefix())
+	if err != nil {
+		log.Printf("获取 Worker 列表失败: %v", err)
+		return
+	}
+
+	// 根据 Worker 节点数量记录日志
+	if len(resp.Kvs) > 0 {
+		log.Printf("检测到 %d 个 Worker 节点已注册，开始分配任务", len(resp.Kvs))
+	} else {
+		log.Println("等待 Worker 节点超时，未检测到任何 Worker 节点")
+	}
 }
 
 // assignTask 分配任务给可用的Worker

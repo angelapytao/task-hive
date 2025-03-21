@@ -13,4 +13,11 @@ docker run -d \
   --initial-cluster "etcd0=http://172.17.0.3:2380" \
   --initial-cluster-state new
 
-  go build -o task-hive .
+go build -o task-hive .
+
+todo:
+1. 通过taskid查询 任务状态
+2. 节点的负载上报
+3. 按照优先级均等分配任务
+4. 任务还在生产，优雅退出问题 bug fix
+5. 任务延迟（时间可配）分配，平均分配策略

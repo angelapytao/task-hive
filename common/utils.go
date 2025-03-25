@@ -2,6 +2,7 @@ package common
 
 import (
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -18,4 +19,13 @@ func GenerateRandomID() string {
 		b[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 	return string(b)
+}
+
+// SplitProcessingKey 解析处理中任务的键，返回 [workerID, taskID]
+func SplitProcessingKey(key string) []string {
+	// 移除前缀
+	key = strings.TrimPrefix(key, ProcessingKey)
+	// 按 "/" 分割
+	parts := strings.Split(key, "/")
+	return parts
 }

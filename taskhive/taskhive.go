@@ -2,6 +2,7 @@ package taskhive
 
 import (
 	"context"
+	"gitlab.ituchong.com/tc-common/common-task-hive/api"
 	"gitlab.ituchong.com/tc-common/common-task-hive/common"
 	"gitlab.ituchong.com/tc-common/common-task-hive/model"
 	"gitlab.ituchong.com/tc-common/common-task-hive/tasks"
@@ -37,6 +38,7 @@ type TaskGenerator interface {
 type Config struct {
 	EtcdEndpoints     []string
 	WorkerCount       int
+	WorkerCapacity    int // 单节点最大处理任务数
 	DialTimeout       time.Duration
 	WorkerWaitTimeout time.Duration
 	Strategy          string
@@ -45,9 +47,10 @@ type Config struct {
 // DefaultConfig 返回默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		EtcdEndpoints: []string{common.EtcdEndpoints},
-		WorkerCount:   1,
-		DialTimeout:   5 * time.Second,
+		EtcdEndpoints:  []string{common.EtcdEndpoints},
+		WorkerCount:    1,
+		WorkerCapacity: 10,
+		DialTimeout:    5 * time.Second,
 	}
 }
 
@@ -147,7 +150,7 @@ func (th *TaskHive) startTasks() {
 func (th *TaskHive) Start() error {
 	// 创建dispatcher领导者选举
 	dispatcherElection, err := tasks.NewLeaderElection(th.client, common.RoleDispatcher, th.hostname, func() {
-		th.wg.Add(2)
+		th.wg.Add(3)
 		// 启动任务调度器
 		go func() {
 			defer th.wg.Done()
@@ -158,6 +161,15 @@ func (th *TaskHive) Start() error {
 		go func() {
 			defer th.wg.Done()
 			th.startTasks()
+		}()
+
+		// 启动 API 服务器
+		apiServer := api.NewServer(th.client)
+		go func() {
+			defer th.wg.Done()
+			if err := apiServer.Start(":8088"); err != nil {
+				log.Fatalf("API 服务器启动失败：%v", err)
+			}
 		}()
 	})
 	if err != nil {
@@ -188,7 +200,7 @@ func (th *TaskHive) Start() error {
 		th.wg.Add(1)
 		go func(index int) {
 			defer th.wg.Done()
-			worker := tasks.RegisterWorker(th.ctx, th.client)
+			worker := tasks.RegisterWorker(th.ctx, th.client, config.WorkerCapacity)
 			th.workers = append(th.workers, worker)
 			go worker.ProcessTasks(th.client)
 			log.Printf("Started worker %d on %s\n", index+1, th.hostname)

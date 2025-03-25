@@ -25,7 +25,7 @@ func generateID() string {
 }
 
 // RegisterWorker 注册Worker并保持心跳
-func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
+func RegisterWorker(ctx context.Context, client *clientv3.Client, capacity int) *Worker {
 	workerID := generateID()
 	resp, err := client.Grant(ctx, 10)
 	if err != nil {
@@ -35,7 +35,7 @@ func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
 	worker := &Worker{
 		ID:            workerID,
 		Lease:         resp.ID,
-		Capacity:      10, // 设置默认并发处理能力
+		Capacity:      capacity, // 设置并发处理能力
 		TaskCount:     0,
 		LastHeartbeat: time.Now(),
 	}
@@ -291,17 +291,22 @@ func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 	// 等待Worker节点注册
 	waitForWorkers(ctx, client)
 
+	processPendingTasks(ctx, client)
+
 	// 创建两个watcher，一个用于监听待处理任务，一个用于监听延迟任务触发器
 	pendingWatcher := clientv3.NewWatcher(client)
 	delayedWatcher := clientv3.NewWatcher(client)
+	workerWatcher := clientv3.NewWatcher(client)
 	defer pendingWatcher.Close()
 	defer delayedWatcher.Close()
+	defer workerWatcher.Close()
 
 	// 监听待处理任务
 	pendingWatchChan := pendingWatcher.Watch(ctx, common.PendingTasksKey, clientv3.WithPrefix())
-
 	// 监听延迟任务触发器的删除事件（TTL过期）
 	delayedWatchChan := delayedWatcher.Watch(ctx, common.DelayedTriggerKey, clientv3.WithPrefix())
+	// 监听Worker状态变化
+	workerWatchChan := workerWatcher.Watch(ctx, common.WorkersKey, clientv3.WithPrefix())
 
 	// 处理待处理任务
 	go func() {
@@ -379,9 +384,98 @@ func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 		}
 	}()
 
+	// 监听Worker状态变化，当Worker空闲下来时重新分配任务
+	go func() {
+		for resp := range workerWatchChan {
+			for _, ev := range resp.Events {
+				// 当Worker状态更新时（可能是任务完成后空闲下来）
+				if ev.Type == clientv3.EventTypePut {
+					// 检查是否有待处理任务
+					pendingResp, err := client.Get(ctx, common.PendingTasksKey, clientv3.WithPrefix(), clientv3.WithCountOnly())
+					if err != nil {
+						log.Printf("获取待处理任务数量失败: %v", err)
+						continue
+					}
+
+					// 如果有待处理任务，尝试重新分配
+					if pendingResp.Count > 0 {
+						// 获取一批待处理任务并尝试分配
+						batchSize := 10 // 每次处理的任务数量
+						if pendingResp.Count < int64(batchSize) {
+							batchSize = int(pendingResp.Count)
+						}
+
+						pendingTasksResp, err := client.Get(ctx, common.PendingTasksKey, clientv3.WithPrefix(), clientv3.WithLimit(int64(batchSize)))
+						if err != nil {
+							log.Printf("获取待处理任务失败: %v", err)
+							continue
+						}
+
+						for _, kv := range pendingTasksResp.Kvs {
+							var task model.Task
+							if err := json.Unmarshal(kv.Value, &task); err != nil {
+								log.Printf("解析任务失败: %v", err)
+								continue
+							}
+
+							// 尝试分配任务
+							assignTask(ctx, client, task, common.Strategy)
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	// 定期检查待处理任务，确保没有任务被遗漏
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				processPendingTasks(ctx, client)
+			}
+		}
+	}()
+
 	// 等待上下文取消
 	<-ctx.Done()
 	log.Println("Task dispatcher stopped")
+}
+
+// processPendingTasks 处理已存在的待处理任务
+func processPendingTasks(ctx context.Context, client *clientv3.Client) {
+	log.Println("扫描并处理已存在的待处理任务...")
+
+	// 获取所有待处理任务
+	resp, err := client.Get(ctx, common.PendingTasksKey, clientv3.WithPrefix())
+	if err != nil {
+		log.Printf("获取待处理任务失败: %v", err)
+		return
+	}
+
+	if len(resp.Kvs) == 0 {
+		log.Println("没有发现待处理任务")
+		return
+	}
+
+	log.Printf("发现 %d 个待处理任务，开始分配...", len(resp.Kvs))
+
+	// 解析并分配任务
+	for _, kv := range resp.Kvs {
+		var task model.Task
+		if err := json.Unmarshal(kv.Value, &task); err != nil {
+			log.Printf("解析任务失败: %v", err)
+			continue
+		}
+
+		// 分配任务给可用的Worker
+		assignTask(ctx, client, task, common.Strategy)
+	}
 }
 
 // waitForWorkers 等待固定时间，然后检查是否有 Worker 节点注册

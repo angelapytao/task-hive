@@ -106,7 +106,9 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 								log.Printf("提交延迟任务事务失败: %v", err)
 							} else {
 								// 事务成功，更新Worker任务计数
-								w.TaskCount--
+								//w.TaskCount--
+								// 使用事务原子性地更新Worker的TaskCount
+								w.updateTaskCount(ctx, client, -1)
 							}
 						} else {
 							// 超过重试次数，移至失败队列
@@ -124,8 +126,11 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 							if err != nil {
 								log.Printf("提交失败任务事务失败: %v", err)
 							} else {
+								//// 事务成功，更新Worker任务计数
+								//w.TaskCount--
 								// 事务成功，更新Worker任务计数
-								w.TaskCount--
+								// 使用事务原子性地更新Worker的TaskCount
+								w.updateTaskCount(ctx, client, -1)
 							}
 						}
 					} else {
@@ -148,13 +153,76 @@ func (w *Worker) ProcessTasks(client *clientv3.Client) {
 							log.Printf("提交完成任务事务失败: %v", err)
 						} else {
 							// 事务成功，更新Worker任务计数
-							w.TaskCount--
+							//w.TaskCount--
+							log.Printf("COMPLETED worker: %s, taskCount: %d", w.ID, w.TaskCount)
+							w.updateTaskCount(ctx, client, -1)
 						}
 					}
 				}(ctx, task)
 			}
 		}
 	}
+}
+
+// updateTaskCount 原子性地更新Worker的任务计数
+func (w *Worker) updateTaskCount(ctx context.Context, client *clientv3.Client, delta int) {
+	// 创建一个新的上下文，避免使用可能已取消的上下文
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 使用CAS操作确保原子性更新
+	for retry := 0; retry < 3; retry++ {
+		// 获取当前Worker状态
+		resp, err := client.Get(updateCtx, common.WorkersKey+w.ID)
+		if err != nil || len(resp.Kvs) == 0 {
+			log.Printf("获取Worker状态失败: %v", err)
+			return
+		}
+
+		var currentWorker Worker
+		if err := json.Unmarshal(resp.Kvs[0].Value, &currentWorker); err != nil {
+			log.Printf("解析Worker状态失败: %v", err)
+			return
+		}
+
+		// 更新任务计数
+		currentWorker.TaskCount += delta
+		if currentWorker.TaskCount < 0 {
+			currentWorker.TaskCount = 0 // 防止计数为负
+		}
+
+		// 更新本地Worker对象
+		w.TaskCount = currentWorker.TaskCount
+
+		// 更新LastHeartbeat
+		currentWorker.LastHeartbeat = time.Now()
+
+		// 序列化更新后的Worker
+		workerData, _ := json.Marshal(currentWorker)
+
+		// 使用CAS操作确保原子性更新
+		txn := client.Txn(updateCtx)
+		txnResp, err := txn.
+			If(clientv3.Compare(clientv3.ModRevision(common.WorkersKey+w.ID), "=", resp.Kvs[0].ModRevision)).
+			Then(clientv3.OpPut(common.WorkersKey+w.ID, string(workerData), clientv3.WithLease(currentWorker.Lease))).
+			Commit()
+
+		if err != nil {
+			log.Printf("更新Worker状态事务失败: %v", err)
+			time.Sleep(time.Duration(50*(retry+1)) * time.Millisecond) // 退避重试
+			continue
+		}
+
+		if txnResp.Succeeded {
+			log.Printf("Worker %s 任务计数更新为 %d", w.ID, currentWorker.TaskCount)
+			return
+		}
+
+		log.Printf("Worker状态已被其他进程修改，重试更新...")
+		time.Sleep(time.Duration(50*(retry+1)) * time.Millisecond) // 退避重试
+	}
+
+	log.Printf("更新Worker任务计数失败，已达到最大重试次数")
 }
 
 // 执行具体任务

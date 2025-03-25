@@ -1,10 +1,11 @@
-package main
+package test
 
 import (
 	"flag"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"github.com/tealeg/xlsx"
+	"gitlab.ituchong.com/tc-common/common-task-hive/common"
 	"gitlab.ituchong.com/tc-common/common-task-hive/model"
 	"gitlab.ituchong.com/tc-common/common-task-hive/taskhive"
 	"gitlab.ituchong.com/tc-common/common-task-hive/tasks"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"testing"
 	"time"
 )
 
@@ -33,7 +35,7 @@ func (w *WechatTaskGenerator) GenerateTasks(client *clientv3.Client) error {
 	// 获取当前文件所在目录
 	_, filename, _, _ := runtime.Caller(0)
 	projectRoot := filepath.Dir(filename)
-	excelPath := filepath.Join(projectRoot, "task.xlsx")
+	excelPath := filepath.Join(projectRoot, "../task.xlsx")
 
 	// 打印路径信息
 	logrus.Infof("Excel文件路径: %s", excelPath)
@@ -92,13 +94,14 @@ func (w *WechatTaskGenerator) GenerateTasks(client *clientv3.Client) error {
 	return nil
 }
 
-func main() {
+func TestMaster(t *testing.T) {
 	workerCount := flag.Int("workerCount", 1, "Number of workers")
 	flag.Parse()
 
 	// 创建配置
 	config := taskhive.DefaultConfig()
 	config.WorkerCount = *workerCount
+	config.Strategy = common.LBStrategyRoundRobin
 
 	// 创建TaskHive实例
 	th, err := taskhive.New(config)

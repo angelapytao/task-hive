@@ -39,6 +39,7 @@ type Config struct {
 	WorkerCount       int
 	DialTimeout       time.Duration
 	WorkerWaitTimeout time.Duration
+	Strategy          string
 }
 
 // DefaultConfig 返回默认配置
@@ -64,6 +65,7 @@ func New(config *Config) (*TaskHive, error) {
 		return nil, err
 	}
 	common.WorkerWaitTimeout = config.WorkerWaitTimeout
+	common.Strategy = config.Strategy
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Printf("Get hostname: %v, Use RandomId\n", err)

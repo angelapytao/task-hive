@@ -15,6 +15,9 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+// 全局变量，用于轮询策略
+var lastWorkerIndex = 0
+
 // 生成唯一ID
 func generateID() string {
 	host, _ := os.Hostname()
@@ -30,9 +33,11 @@ func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
 	}
 
 	worker := &Worker{
-		ID:       workerID,
-		Lease:    resp.ID,
-		Capacity: 10, // 设置默认并发处理能力
+		ID:            workerID,
+		Lease:         resp.ID,
+		Capacity:      10, // 设置默认并发处理能力
+		TaskCount:     0,
+		LastHeartbeat: time.Now(),
 	}
 
 	workerData, _ := json.Marshal(worker)
@@ -44,9 +49,36 @@ func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
 
 	// 保持租约存活
 	keepAliveCh, err := client.KeepAlive(ctx, resp.ID)
+	log.Printf("Worker %s, LeaseId: %v", workerID, resp.ID)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// 在上下文取消时主动删除Worker记录
+	go func() {
+		<-ctx.Done()
+		log.Printf("Worker %s 正在下线，清理资源...\n", workerID)
+
+		// 创建一个新的上下文用于清理操作
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		// 主动删除Worker记录
+		_, err := client.Delete(cleanupCtx, common.WorkersKey+workerID)
+		if err != nil {
+			log.Printf("删除Worker记录失败: %v，将等待租约过期\n", err)
+		} else {
+			log.Printf("Worker %s 已成功从注册表中删除\n", workerID)
+		}
+
+		// 主动撤销租约
+		_, err = client.Revoke(cleanupCtx, worker.Lease)
+		if err != nil {
+			log.Printf("撤销租约失败: %v，将等待租约过期\n", err)
+		} else {
+			log.Printf("Worker %s 的租约已成功撤销\n", workerID)
+		}
+	}()
 
 	// 异步处理续约响应
 	go func() {
@@ -73,6 +105,7 @@ func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
 					worker.Lease = newResp.ID
 					workerData, _ := json.Marshal(worker)
 					_, err = client.Put(ctx, common.WorkersKey+workerID, string(workerData), clientv3.WithLease(newResp.ID))
+					log.Printf("Worker %s, New LeaseId: %v", workerID, newResp.ID)
 					if err != nil {
 						log.Printf("Worker %s 使用新租约重新注册失败: %v \n", workerID, err)
 						return
@@ -84,8 +117,53 @@ func RegisterWorker(ctx context.Context, client *clientv3.Client) *Worker {
 					}
 
 					log.Printf("Worker %s 已成功重新注册 \n", workerID)
+				} else {
+					// 使用CAS操作确保原子性更新心跳时间
+					for retry := 0; retry < 3; retry++ {
+						// 获取当前Worker状态
+						getResp, err := client.Get(ctx, common.WorkersKey+workerID)
+						if err != nil || len(getResp.Kvs) == 0 {
+							log.Printf("获取Worker状态失败: %v", err)
+							break
+						}
+
+						var currentWorker Worker
+						if err := json.Unmarshal(getResp.Kvs[0].Value, &currentWorker); err != nil {
+							log.Printf("解析Worker状态失败: %v", err)
+							break
+						}
+
+						// 只更新心跳时间，保留当前的TaskCount
+						currentWorker.LastHeartbeat = time.Now()
+						// 更新本地Worker对象的TaskCount
+						worker.TaskCount = currentWorker.TaskCount
+
+						// 序列化更新后的Worker
+						workerData, _ := json.Marshal(currentWorker)
+
+						// 使用CAS操作确保原子性更新
+						txn := client.Txn(ctx)
+						txnResp, err := txn.
+							If(clientv3.Compare(clientv3.ModRevision(common.WorkersKey+workerID), "=", getResp.Kvs[0].ModRevision)).
+							Then(clientv3.OpPut(common.WorkersKey+workerID, string(workerData), clientv3.WithLease(resp.ID))).
+							Commit()
+
+						if err != nil {
+							log.Printf("更新Worker心跳时间事务失败: %v", err)
+							time.Sleep(time.Duration(50*(retry+1)) * time.Millisecond) // 退避重试
+							continue
+						}
+
+						if txnResp.Succeeded {
+							log.Printf("Worker %s 租约成功续约，TTL: %d, workerCount: %d", workerID, resp.TTL, currentWorker.TaskCount)
+							break
+						}
+
+						log.Printf("Worker状态已被其他进程修改，重试更新心跳...")
+						time.Sleep(time.Duration(50*(retry+1)) * time.Millisecond) // 退避重试
+					}
 				}
-				log.Printf("Worker %s 租约成功续约，TTL: %d", workerID, resp.TTL)
+
 			}
 		}
 	}()
@@ -238,7 +316,7 @@ func StartDispatcher(client *clientv3.Client, ctx context.Context) {
 					}
 
 					// 分配任务给可用的Worker
-					assignTask(ctx, client, task)
+					assignTask(ctx, client, task, common.Strategy)
 				}
 			}
 		}
@@ -336,7 +414,7 @@ func waitForWorkers(ctx context.Context, client *clientv3.Client) {
 }
 
 // assignTask 分配任务给可用的Worker
-func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
+func assignTask(ctx context.Context, client *clientv3.Client, task model.Task, strategy string) {
 	// 获取所有可用的Worker
 	resp, err := client.Get(ctx, common.WorkersKey, clientv3.WithPrefix())
 	if err != nil {
@@ -349,21 +427,47 @@ func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
 		return
 	}
 
-	// 选择一个Worker（这里可以实现更复杂的负载均衡策略）
-	var selectedWorker Worker
-	minTasks := int(^uint(0) >> 1) // 最大整数
-
+	// 解析所有Worker
+	workers := make([]Worker, 0, len(resp.Kvs))
 	for _, kv := range resp.Kvs {
 		var worker Worker
 		if err := json.Unmarshal(kv.Value, &worker); err != nil {
 			continue
 		}
 
-		// 选择任务数最少的Worker
-		if worker.TaskCount < minTasks {
-			selectedWorker = worker
-			minTasks = worker.TaskCount
+		// 修复负数TaskCount
+		if worker.TaskCount < 0 {
+			worker.TaskCount = 0
 		}
+
+		// 检查Worker是否已达到容量上限
+		if worker.Capacity > 0 && worker.TaskCount >= worker.Capacity {
+			continue // 跳过已满负载的Worker
+		}
+
+		workers = append(workers, worker)
+	}
+
+	if len(workers) == 0 {
+		log.Println("没有可用的Worker或所有Worker都已达到容量上限")
+		return
+	}
+
+	// 根据策略选择Worker
+	var selectedWorker *Worker
+	switch strategy {
+	case common.LBStrategyLeastTasks:
+		// 最小负载策略：选择任务数最少的Worker
+		selectedWorker = selectLeastTasksWorker(workers)
+	case common.LBStrategyRoundRobin:
+		// 轮询策略：按顺序选择Worker
+		selectedWorker = selectRoundRobinWorker(workers)
+	case common.LBStrategyRandom:
+		// 随机策略：随机选择Worker
+		selectedWorker = selectRandomWorker(workers)
+	default:
+		// 默认使用最小负载策略
+		selectedWorker = selectLeastTasksWorker(workers)
 	}
 
 	// 将任务分配给选中的Worker
@@ -371,13 +475,13 @@ func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
 	taskData, _ := json.Marshal(task)
 
 	// 更新Worker的任务计数
-	selectedWorker.TaskCount++
-	workerData, _ := json.Marshal(selectedWorker)
+	//selectedWorker.TaskCount++
+	//workerData, _ := json.Marshal(selectedWorker)
 
 	// 使用事务确保操作的原子性
 	processingKey := common.ProcessingKey + selectedWorker.ID + "/" + task.ID
 	pendingKey := common.PendingTasksKey + task.ID
-	workerKey := common.WorkersKey + selectedWorker.ID
+	//workerKey := common.WorkersKey + selectedWorker.ID
 
 	// 构建事务
 	txn := client.Txn(ctx)
@@ -386,7 +490,7 @@ func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
 		Then(
 			clientv3.OpPut(processingKey, string(taskData)),
 			clientv3.OpDelete(pendingKey),
-			clientv3.OpPut(workerKey, string(workerData)),
+			//clientv3.OpPut(workerKey, string(workerData)),
 		).
 		Commit()
 
@@ -400,7 +504,56 @@ func assignTask(ctx context.Context, client *clientv3.Client, task model.Task) {
 		return
 	}
 
-	log.Printf("任务 %s 已分配给Worker %s", task.ID, selectedWorker.ID)
+	// 使用Worker的updateTaskCount方法原子性地更新任务计数
+	workerObj := &Worker{ID: selectedWorker.ID, Lease: selectedWorker.Lease}
+	workerObj.updateTaskCount(ctx, client, 1)
+
+	log.Printf("任务 %s 已分配给Worker %s (策略: %s)", task.ID, selectedWorker.ID, strategy)
+}
+
+// selectLeastTasksWorker 选择任务数最少的Worker
+func selectLeastTasksWorker(workers []Worker) *Worker {
+	if len(workers) == 0 {
+		return nil
+	}
+
+	minTasks := int(^uint(0) >> 1) // 最大整数
+	selectedIndex := -1
+
+	for i, worker := range workers {
+		if worker.TaskCount < minTasks {
+			selectedIndex = i
+			minTasks = worker.TaskCount
+		}
+	}
+
+	if selectedIndex == -1 {
+		return nil
+	}
+
+	return &workers[selectedIndex]
+}
+
+// selectRoundRobinWorker 轮询选择Worker
+func selectRoundRobinWorker(workers []Worker) *Worker {
+	if len(workers) == 0 {
+		return nil
+	}
+
+	// 更新全局索引
+	lastWorkerIndex = (lastWorkerIndex + 1) % len(workers)
+	return &workers[lastWorkerIndex]
+}
+
+// selectRandomWorker 随机选择Worker
+func selectRandomWorker(workers []Worker) *Worker {
+	if len(workers) == 0 {
+		return nil
+	}
+
+	// 随机选择一个Worker
+	index := rand.Intn(len(workers))
+	return &workers[index]
 }
 
 // StartWorkerMonitor 监控Worker故障并重新分配任务

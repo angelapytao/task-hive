@@ -228,10 +228,16 @@ func (w *Worker) updateTaskCount(ctx context.Context, client *clientv3.Client, d
 // 执行具体任务
 func (w *Worker) executeTask(ctx context.Context, task model.Task) (string, error) {
 	// 这里实现实际的任务处理逻辑
+	delay := time.NewTimer(2 * time.Second)
+	// 当 time.After() 的定时器未正确停止时，其资源永远不会被垃圾回收。改进方案是使用 time.NewTimer() 配合上下文管理：
 	select {
 	case <-ctx.Done():
+		if !delay.Stop() {
+			<-delay.C // 确保通道被清空
+		}
 		return "", fmt.Errorf("任务执行超时")
-	case <-time.After(time.Duration(rand.Intn(3)+1) * time.Second):
+	//case <-time.After(time.Duration(rand.Intn(3)+1) * time.Second):
+	case <-delay.C:
 		processor, exists := taskProcessors[task.Type]
 		if !exists {
 			log.Printf("未找到任务类型 %s 的处理器", task.Type)

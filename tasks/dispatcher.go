@@ -483,13 +483,17 @@ func waitForWorkers(ctx context.Context, client *clientv3.Client) {
 	log.Println("等待 Worker 节点注册...")
 
 	maxWaitTime := common.WorkerWaitTimeout
-
+	delay := time.NewTimer(maxWaitTime)
 	// 等待固定时间
 	select {
 	case <-ctx.Done():
+		//case <-time.After(maxWaitTime):
+		if !delay.Stop() {
+			<-delay.C
+		}
 		log.Println("等待 Worker 节点被取消")
 		return
-	case <-time.After(maxWaitTime):
+	case <-delay.C:
 	}
 
 	// 等待结束后，检查是否有 Worker 节点
